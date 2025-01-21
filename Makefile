@@ -1,2 +1,2 @@
 default:	
-	gcc sequential.c -lm -g
+	gcc sequential.c -lm -O3
