@@ -9,9 +9,9 @@
 #define DD 1
 #define DR 2
 #define RR 3
-#define TARGET RR
+#define TARGET DD
 
-#define GALAXIES_LENGTH 100 * 1000
+#define GALAXIES_LENGTH 100000
 // No galaxies in the data are more than 90deg apart.
 #define HISTOGRAM_SIZE 361 
 #define PI 3.141592653589793238462643383
@@ -20,8 +20,8 @@
 #define RAD2DEG(rad) rad*180 / PI
 
 typedef struct {
-    double declination;
-    double right_ascension;
+    float declination;
+    float right_ascension;
 } EquatorialPoint;
 
 typedef struct
@@ -30,7 +30,7 @@ typedef struct
 } Histogram;
 
 int get_galaxy_data(EquatorialPoint* galaxy_list, int N, const char* pathname);
-double calculate_angle(EquatorialPoint* p1, EquatorialPoint* p2, int n);
+float calculate_angle(EquatorialPoint* p1, EquatorialPoint* p2, int n);
 void calculate_angles(EquatorialPoint* galaxy_list1, EquatorialPoint* galaxy_list2, int N, Histogram* hist);
 void init_histogram(Histogram* hist);
 void save_histogram(Histogram* hist, const char* filename);
@@ -51,13 +51,13 @@ int main(void)
     switch(TARGET) 
     {
         case DD:
-            calculate_angles(synthethic_galaxies, synthethic_galaxies, GALAXIES_LENGTH, &hist);
+            calculate_angles(real_galaxies, real_galaxies, GALAXIES_LENGTH, &hist);
             save_histogram(&hist, "dd.csv"); break;
         case DR:
             calculate_angles(real_galaxies, synthethic_galaxies, GALAXIES_LENGTH, &hist);
             save_histogram(&hist, "dr.csv"); break;
         case RR:
-            calculate_angles(real_galaxies, real_galaxies, GALAXIES_LENGTH, &hist);
+            calculate_angles(synthethic_galaxies, synthethic_galaxies, GALAXIES_LENGTH, &hist);
             save_histogram(&hist, "rr.csv"); break;
             
 
@@ -84,11 +84,11 @@ int get_galaxy_data(EquatorialPoint* galaxy_list, int N, const char* pathname)
         return 1;
     }
     // Read data from file.
-    double dec = 0.0;
-    double ra = 0.0;
+    float dec = 0.0;
+    float ra = 0.0;
     for (int i = 0; i < N; i++)
     {
-        if(fscanf(file, "%lf %lf", &ra, &dec) != 2)
+        if(fscanf(file, "%f %f", &ra, &dec) != 2)
         {
             if(DEBUG) printf("Error reading file");
             return 1;
@@ -100,9 +100,9 @@ int get_galaxy_data(EquatorialPoint* galaxy_list, int N, const char* pathname)
     fclose(file);
 }
 
-double calculate_angle(EquatorialPoint* p1, EquatorialPoint* p2, int n)
+float calculate_angle(EquatorialPoint* p1, EquatorialPoint* p2, int n)
 {
-    double d1, d2, a1, a2;
+    float d1, d2, a1, a2;
     d1 = ARCMIN2RAD(p1->declination);
     a1 = ARCMIN2RAD(p1->right_ascension);
 
@@ -110,11 +110,11 @@ double calculate_angle(EquatorialPoint* p1, EquatorialPoint* p2, int n)
     a2 = ARCMIN2RAD(p2->right_ascension);
     
     // Angle formula directly copied from course material.
-    double b1 = sin(d1)*sin(d2);
-    double b2 = cos(d1)*cos(d2)*cos(a1 - a2);
-    double b3 = b1 + b2;
-    b3 = fmax(-1.0f, fmin(1.0f, b3)); // Clamp to -1 - 1
-    double angle = acos(b3);
+    float b1 = sinf(d1)*sinf(d2);
+    float b2 = cosf(d1)*cosf(d2)*cosf(a1 - a2);
+    float b3 = b1 + b2;
+    b3 = fmaxf(-1.0f, fmin(1.0f, b3)); // Clamp to -1 - 1
+    float angle = acosf(b3);
     return angle;
 }
 
@@ -123,10 +123,9 @@ void calculate_angles(EquatorialPoint* galaxy_list1, EquatorialPoint* galaxy_lis
     long int angles_calculated = 0;
     for (int i = 0; i < N; i++)
     {
-        printf("\rCalculating for galaxy %d", i); fflush(stdout);
         for (int j = 0; j < N; j++)
         {
-            double angle = calculate_angle(&galaxy_list1[i], &galaxy_list2[j], i);
+            float angle = calculate_angle(&galaxy_list1[i], &galaxy_list2[j], i);
             angle = RAD2DEG(angle);
 
             // x != x if it's NaN.
