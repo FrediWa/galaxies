@@ -9,11 +9,11 @@
 #define DD 1
 #define DR 2
 #define RR 3
-#define TARGET DD
+#define TARGET DR
 
 #define GALAXIES_LENGTH 100000
 // No galaxies in the data are more than 90deg apart.
-#define HISTOGRAM_SIZE 361 
+#define HISTOGRAM_SIZE 360
 #define PI 3.141592653589793238462643383
 
 #define ARCMIN2RAD(arcmin) arcmin*PI / (60 * 180)
@@ -133,7 +133,7 @@ void calculate_angles(EquatorialPoint* galaxy_list1, EquatorialPoint* galaxy_lis
             {
                 printf("NaN\n");
             }
-            int bin_index = (int)round(angle * 4);
+            int bin_index = (int)(angle * 4);
             hist->bins[bin_index]++;
             angles_calculated++;
         }
@@ -157,6 +157,8 @@ void save_histogram(Histogram* hist, const char* filename)
         fprintf(file, "%d\n", hist->bins[i]);
         acc += hist->bins[i];
     }
+    fclose(file);
+    
     printf("Histogram total: %ld\n", acc);
     printf("Total computations should be %ld\n", ((long)GALAXIES_LENGTH*(long)GALAXIES_LENGTH));
 }

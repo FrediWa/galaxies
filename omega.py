@@ -18,7 +18,7 @@ totalDD = 0
 totalDR = 0
 totalRR = 0
 
-for i in range(0, 361):
+for i in range(0, 360):
     omega.append((DD[i] - 2 * DR[i] + RR[i]) / RR[i])
     totalDD += DD[i]
     totalDR += DR[i]
