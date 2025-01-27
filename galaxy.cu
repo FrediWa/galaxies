@@ -84,6 +84,20 @@ __global__ void compute_angles(EquatorialPoint* galaxies1, EquatorialPoint* gala
 
 }
 
+__global__ void compute_omega(Histogram* hist_dd, Histogram* hist_dr, Histogram* hist_rr, float* omega)
+{
+    int i = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if (i > HISTOGRAM_SIZE)
+        return;
+
+    float dd = hist_dd->bins[i];
+    float dr = hist_dr->bins[i];
+    float rr = hist_rr->bins[i];
+
+    omega[i] = ((dd - 2 * dr + rr) / rr);
+}
+
 /* ------ Host functions ------ */
 int get_galaxy_data(EquatorialPoint* galaxy_list, int N, const char* pathname)
 {
@@ -123,29 +137,26 @@ int main(void)
     printf("Max threads per block: %d\n", prop.maxThreadsPerBlock);
     printf("Max grid size: %d\n", prop.maxGridSize[0]);
 
+    // Host variables.
     cudaError_t      cuda_err;
-    EquatorialPoint* h_galaxies_real;
-    EquatorialPoint* h_galaxies_synthetic;
-
-    EquatorialPoint* d_galaxies1;
-    EquatorialPoint* d_galaxies2;
-
-    Histogram h_hist_dd, h_hist_dr, h_hist_rr;
-    Histogram* d_output;
-
+    EquatorialPoint* h_galaxies_real,* h_galaxies_synthetic;
+    Histogram h_output;
+    float h_omega[HISTOGRAM_SIZE];
     unsigned long long int angles_calculated = 0;
+
+    // Device variables,
+    EquatorialPoint* d_galaxies1, * d_galaxies2;
+    Histogram* d_hist_dd, *d_hist_dr, * d_hist_rr;
     unsigned long long int* d_angles_calculated;
+    float* d_omega;
+
     cudaMalloc(&d_angles_calculated, sizeof(unsigned long long int));
-    // long int total_dd_computations, total_rr_computations, total_dr_computations;
+    cudaMalloc(&d_omega, HISTOGRAM_SIZE * sizeof(float));
+    cudaMalloc(&d_hist_rr, sizeof(Histogram)); cudaMemset(d_hist_rr->bins, 0, HISTOGRAM_SIZE);
+    cudaMalloc(&d_hist_dr, sizeof(Histogram)); cudaMemset(d_hist_dr->bins, 0, HISTOGRAM_SIZE);
+    cudaMalloc(&d_hist_dd, sizeof(Histogram)); cudaMemset(d_hist_dd->bins, 0, HISTOGRAM_SIZE);
 
-    // Init histograms.
-    memset(h_hist_dd.bins, 0, HISTOGRAM_SIZE);
-    memset(h_hist_dr.bins, 0, HISTOGRAM_SIZE);
-    memset(h_hist_rr.bins, 0, HISTOGRAM_SIZE);
-    cudaMalloc(&d_output, sizeof(Histogram));
-    cudaMemset(d_output->bins, 0, HISTOGRAM_SIZE);
-
-    // Fetch real and synthetic data.
+    // Fetch data.
     h_galaxies_real = (EquatorialPoint*) malloc(GALAXIES_LENGTH * sizeof(EquatorialPoint));
     h_galaxies_synthetic = (EquatorialPoint*) malloc(GALAXIES_LENGTH * sizeof(EquatorialPoint));
     if(h_galaxies_real == NULL || h_galaxies_synthetic == NULL) return 1;
@@ -153,6 +164,7 @@ int main(void)
     (void) get_galaxy_data(h_galaxies_real, GALAXIES_LENGTH, "./data/data_100k_arcmin.dat");
     (void) get_galaxy_data(h_galaxies_synthetic, GALAXIES_LENGTH, "./data/rand_100k_arcmin.dat");
     printf("First galaxy of real data: %f %f\n", h_galaxies_real[0].right_ascension, h_galaxies_real[0].declination);
+
     // Malloc 2 galaxy lists for device.
     cuda_err = cudaMalloc(&d_galaxies1, GALAXIES_LENGTH * sizeof(EquatorialPoint));
     if(cuda_err != cudaSuccess) return 1;
@@ -172,55 +184,63 @@ int main(void)
         // Chose input galaxies and output histogram.
         switch(hist_i) {
             case DD: 
+                std::cout << "Computing DD" << std::endl;
                 h_galaxies1 = h_galaxies_real;
                 h_galaxies2 = h_galaxies_real;
-                hist = &h_hist_dd;
+                hist = d_hist_dd;
                 break;
             case DR:
-                h_galaxies1 = h_galaxies_synthetic;
-                h_galaxies2 = h_galaxies_real;
-                hist = &h_hist_dr;
+                std::cout << "Computing DR" << std::endl;
+                h_galaxies1 = h_galaxies_real;
+                h_galaxies2 = h_galaxies_synthetic;
+                hist = d_hist_dr;
                 break;
             case RR:
+                std::cout << "Computing RR" << std::endl;
                 h_galaxies1 = h_galaxies_synthetic;
                 h_galaxies2 = h_galaxies_synthetic;
-                hist = &h_hist_rr;
+                hist = d_hist_rr;
                 break;
         }
 
-        printf("First h_galaxies1 declination %f\n", h_galaxies1[0].declination);
         // Copy data host -> device.
         cuda_err = cudaMemcpy(d_galaxies1, h_galaxies1, GALAXIES_LENGTH * sizeof(EquatorialPoint), cudaMemcpyHostToDevice);
-        if(cuda_err != cudaSuccess)
-            std::cout << "Error in memcpy" << cudaGetErrorString(cuda_err) << std::endl;
         cuda_err = cudaMemcpy(d_galaxies2, h_galaxies2, GALAXIES_LENGTH * sizeof(EquatorialPoint), cudaMemcpyHostToDevice);
 
-        // Compute the three histograms.
-        printf("Computing for %c%c\n", (hist_i < RR) ? 'D' : 'R', (hist_i > DD) ? 'R' : 'D'); // I'm both proud and disgusted by this.
-        compute_angles<<<gridDim, blockDim>>>(d_galaxies1, d_galaxies2, d_output, d_angles_calculated);
+        // Compute the histogram.
+        cudaMemset(d_angles_calculated, 0, sizeof(unsigned long long int));
+        compute_angles<<<gridDim, blockDim>>>(d_galaxies1, d_galaxies2, hist, d_angles_calculated);
         
         // Wait for a single histogram to be computed.
         cudaDeviceSynchronize();
         
         // Copy data device -> host.
-        cuda_err = cudaMemcpy(hist, d_output, sizeof(Histogram), cudaMemcpyDeviceToHost);
-        if(cuda_err != cudaSuccess)
-            std::cout << "Error in memcpy " << cudaGetErrorString(cuda_err) << std::endl;
         cuda_err = cudaMemcpy(&angles_calculated, d_angles_calculated, sizeof(unsigned long long int), cudaMemcpyDeviceToHost);
+        cuda_err = cudaMemcpy(&h_output, hist, sizeof(unsigned long long int), cudaMemcpyDeviceToHost);
         
-        cudaMemset(d_angles_calculated, 0, sizeof(unsigned long long int));
+        std::cout << "First histogram value " << h_output.bins[0] << std::endl;
 
-        printf("Angles calculated %ld\n", angles_calculated);
+        std::cout << "Angles calculated " << angles_calculated << std::endl;
     }
 
-    printf("DD first value: %d\n", h_hist_dd.bins[0]);
-    printf("DR first value: %d\n", h_hist_dr.bins[0]);
-    printf("RR first value: %d\n", h_hist_rr.bins[0]);
+    // Compute omega values. The same grid dimensions and block dimensions are used.
+    compute_omega<<<gridDim, blockDim>>>(d_hist_dd, d_hist_dr, d_hist_rr, d_omega);
+    cuda_err = cudaMemcpy(&h_omega, d_omega, HISTOGRAM_SIZE * sizeof(float), cudaMemcpyDeviceToHost);
+
+    // Print first n omega values.
+    int n = 5;
+    std::cout << "First " << n << " omega values:" << std::endl;
+    for (int i = 0; i < n; i++)
+        std::cout << h_omega[i] << std::endl;
 
     // Clean up.
     free(h_galaxies_real);
     free(h_galaxies_synthetic);
-    cudaFree(d_output);
-    cudaFree(d_galaxies1);
-    cudaFree(d_galaxies2);
+
+    cudaFree(d_galaxies1); cudaFree(d_galaxies2);
+    cudaFree(d_omega);
+    cudaFree(d_hist_dd);cudaFree(d_hist_dr); cudaFree(d_hist_rr);
+    cudaFree(d_angles_calculated);
+
+    return 0;
 }
