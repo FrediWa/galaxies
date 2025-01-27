@@ -1,5 +1,10 @@
 # Galaxy calculator
 
+## Running
+For sequntial run `make` followed by `a.out`.
+
+Parallel is compiled with `nvcc -arch=sm_70 galaxy.cu -o galaxy -lm` and run with `srun -p gpu -n 1 -t 10:00 --mem=1G -e err.txt galaxy`. 
+
 ## Introduction
 The problem is to design and implement a program that calculates omega values for a distribution of galaxies. With 100000 random galaxies and 100000 real galaxies, times 3 histograms, the number of computations to be run are 30 billion. 
 
